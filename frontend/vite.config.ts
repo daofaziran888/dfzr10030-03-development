@@ -20,7 +20,8 @@ export default defineConfig({
     open: false,
     strictPort: false,
     proxy: {
-      '/api': {
+      // 用正则限定前缀，避免 /apiclient 这类业务页面被误当成 /api 代理到后端。
+      '^/api(/|$)': {
         target: proxyTarget,
         changeOrigin: true,
       },

@@ -74,5 +74,33 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 采集规则发布快照
+
+网页采集规则页面上编辑的是**草稿**；生产采集只读取 `crawler_snapshot` 里
+**已测试通过的不可变快照**。同一份快照把目标网址、页面选择器、正文选择器、
+翻页参数、规则版本和选择器测试结果绑在一起，每次采集只引用其中一个版本。
+
+快照流转：
+
+```text
+草稿 ──选择器测试通过──> 待发布 ──显式确认（旧快照无运行任务）──> 已发布 ──停用──> 已停用
+                            └──────旧快照仍有运行任务──────> 待生效 ──旧任务结束自动切换──> 已发布
+任意阶段 ──归档──> 已归档（终态，不能回到运行阶段）
+```
+
+- `POST /api/crawler/parse`：解析目标网址、页面选择器与翻页参数，返回结构化结果与校验错误。
+- `POST /api/crawler/{id}/tests`：提交选择器测试，测试记录与规则版本、选择器、翻页参数同版。
+- `GET /api/crawler/snapshots?rule_id=`：查看草稿、待发布、待生效与已发布快照。
+- `POST /api/crawler/snapshots/{id}/actions`：`确认发布`、`归档`、`停用`、`重算摘要`。
+  同一快照并发确认只有一次成功，其余因状态已变化被拒绝。
+- `GET /api/crawler/{id}/effective`：生产采集当前唯一读取的版本。
+- `POST /api/crawler/runs`：启动采集运行，只能引用已发布且测试通过的快照；
+  `POST /api/crawler/runs/{id}/complete` 结束后会把待生效快照自动推进为已发布。
+- `POST /api/monitor/sync`：监控分析服务消费发布快照，按版本汇总抓取条数与选择器错误，
+  把差异回写采集规则，并写入 `GET /api/monitor/todos` 的待办工作台。
+
+回归测试：`cd backend && .venv/bin/python -m unittest tests.test_crawler_snapshot`，
+前端链路在 `frontend/tests/crawler-snapshot.spec.ts`。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

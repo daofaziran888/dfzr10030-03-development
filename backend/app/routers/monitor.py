@@ -1,12 +1,11 @@
-"""采集监控 分析看板接口：汇总指标、参数运行与结果导出。"""
+"""采集监控 分析看板接口：按发布快照版本汇总、消费回写与待办工作台。"""
 from __future__ import annotations
 
 import csv
 import io
-import random
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload
@@ -27,11 +26,37 @@ def csv_cell(value: Any) -> str:
 
 @router.get("/summary")
 def get_summary() -> dict[str, Any]:
-    return {"metrics": [
-        {"label": "覆盖数据源", "value": random.randint(12, 45), "trend": random.randint(-12, 25)},
-        {"label": "最新指标值", "value": round(random.uniform(0.72, 0.99), 3), "trend": random.randint(-8, 15)},
-        {"label": "异常记录", "value": random.randint(0, 8), "trend": -random.randint(1, 10)},
-    ]}
+    """监控 KPI 与逐版本明细：成功量与选择器版本一一对应。"""
+    return service.get_summary()
+
+
+@router.get("/versions")
+def list_versions() -> dict[str, Any]:
+    """按发布快照版本汇总抓取条数和选择器错误。"""
+    items = service.collect_snapshot_metrics()
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/sync")
+def sync_from_crawler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """消费采集规则发布快照，并按版本把差异回写采集规则。"""
+    actor = str((payload or {}).get("操作人") or "值班管理员")
+    items, message = service.sync_from_crawler(actor)
+    return {"ok": True, "message": message, "items": items, "total": len(items)}
+
+
+@router.get("/todos")
+def list_todos(status: str | None = Query(default=None)) -> dict[str, Any]:
+    items = service.list_todos(status)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/todos/{todo_id}/actions", response_model=ActionResult)
+def run_todo_action(todo_id: int, payload: ActionPayload) -> ActionResult:
+    entry, message = service.run_todo_action(todo_id, payload.action.strip(), payload.remark)
+    if entry is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=entry)
 
 
 @router.get("")
